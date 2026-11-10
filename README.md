@@ -2,7 +2,7 @@
 
 **Name:** Roshan Joshi  
 **Task:** 6 (AI · AWS)  
-**Time spent:** ~3 hours
+**Time spent:** 4 hours
 
 Design / thinking only. No live AWS account, no real Bedrock keys, no deploy against
 Jobbser Prod. Workers stay free. This assistant answers product questions; it does

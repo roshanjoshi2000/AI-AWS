@@ -1,0 +1,154 @@
+# Language-agnostic sketch for the assistant chat turn.
+# Design only: not a live contract. Placeholders, no auth secrets.
+openapi: 3.0.3
+info:
+  title: Jobbser Assistant Chat (Task 6 sketch)
+  version: 0.1.0
+  description: |
+    Fronted by Jobbser-Api on ECS. The API authenticates the caller, applies
+    rate limits / feature flags, then either serves the legacy JSON Q&A path
+    or invokes Lambda jobbser-qa-turn (Bedrock + retrieval).
+paths:
+  /v1/assistant/chat:
+    post:
+      summary: Single help turn (Jobbser product scope only)
+      operationId: assistantChat
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+            examples:
+              inScope:
+                value:
+                  message: Is Jobbser free for workers?
+                  clientSessionId: "01JEXAMPLESESSION"
+                  history: []
+              refuseOffTopic:
+                value:
+                  message: Write me a full CV for a Java role
+      responses:
+        '200':
+          description: Answer, refusal, or degraded JSON fallback
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+              examples:
+                ok:
+                  value:
+                    status: ok
+                    message: >
+                      Yes. Workers use Jobbser free. Companies pay to activate
+                      job listings.
+                    citations:
+                      - chunkId: qa-001
+                        sourceType: qa_json
+                        title: Is Jobbser free for workers?
+                        score: 0.91
+                    usage:
+                      bedrockInvoked: true
+                      promptTokensEst: 820
+                      responseTokens: 42
+                      fallbackJson: false
+                refused:
+                  value:
+                    status: refused
+                    code: off_topic
+                    message: >
+                      I only help with Jobbser product questions: jobs,
+                      applications, companies, workers, and in-app features.
+                    citations: []
+                    usage:
+                      bedrockInvoked: false
+                      fallbackJson: false
+        '400':
+          description: Validation (empty message, etc.)
+        '401':
+          description: Missing / invalid auth
+        '429':
+          description: Rate limit
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ChatRequest:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          maxLength: 4000
+          description: User text; server still enforces token cap after sanitize
+        clientSessionId:
+          type: string
+          description: Optional client correlation id (not a server memory store)
+        history:
+          type: array
+          maxItems: 2
+          description: Optional prior turns; each side truncated under history budget
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role:
+                type: string
+                enum: [user, assistant]
+              content:
+                type: string
+                maxLength: 1000
+        forceJson:
+          type: boolean
+          description: Debug / support escape hatch to legacy matcher
+    ChatResponse:
+      type: object
+      required: [status, message, citations, usage]
+      properties:
+        status:
+          type: string
+          enum: [ok, refused, degraded]
+        code:
+          type: string
+          nullable: true
+          description: Refusal / degrade code when not ok
+          enum: [off_topic, pii, shorten, unknown, budget, bedrock_error, null]
+        message:
+          type: string
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Citation'
+        usage:
+          $ref: '#/components/schemas/Usage'
+    Citation:
+      type: object
+      required: [chunkId, sourceType]
+      properties:
+        chunkId:
+          type: string
+        sourceType:
+          type: string
+          enum: [qa_json, help_doc, facts]
+        title:
+          type: string
+        score:
+          type: number
+          format: float
+    Usage:
+      type: object
+      required: [bedrockInvoked, fallbackJson]
+      properties:
+        bedrockInvoked:
+          type: boolean
+        promptTokensEst:
+          type: integer
+        responseTokens:
+          type: integer
+        fallbackJson:
+          type: boolean
